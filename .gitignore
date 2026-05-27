@@ -3,3 +3,10 @@
 .cursor/hooks.json
 .cursor/hooks/
 .cursor/rules/forge-workflow.mdc
+
+# Terraform
+infrastructure/.terraform/
+infrastructure/.terraform.lock.hcl
+*.tfstate
+*.tfstate.backup
+*.tfplan
