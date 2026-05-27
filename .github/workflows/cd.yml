@@ -1,0 +1,311 @@
+name: CD - Deploy
+
+on:
+  push:
+    branches:
+      - main
+
+env:
+  NODE_VERSION: "20"
+  AWS_REGION: ${{ secrets.AWS_REGION }}
+  REGISTRY: ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com
+  IMAGE_NAME: thoughtflow-api
+  STAGING_SERVICE: thoughtflow-staging-api
+  PRODUCTION_SERVICE: thoughtflow-production-api
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  test:
+    name: Full Test Suite
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - run: npm ci
+      - run: npm test -- --coverage
+
+  build-and-push:
+    name: Build & Push to ECR
+    runs-on: ubuntu-latest
+    needs: [test]
+    outputs:
+      image-tag: ${{ steps.meta.outputs.tags }}
+      image-digest: ${{ steps.build.outputs.digest }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_CICD_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - uses: aws-actions/amazon-ecr-login@v2
+        id: ecr-login
+
+      - uses: docker/setup-buildx-action@v3
+
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=sha,prefix=
+            type=raw,value=latest
+
+      - id: build
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+          format: table
+          exit-code: "1"
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+
+  deploy-staging:
+    name: Deploy to Staging
+    runs-on: ubuntu-latest
+    needs: [build-and-push]
+    environment: staging
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_CICD_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Deploy to App Runner (Staging)
+        run: |
+          aws apprunner update-service \
+            --service-arn ${{ secrets.STAGING_SERVICE_ARN }} \
+            --source-configuration '{
+              "ImageRepository": {
+                "ImageIdentifier": "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}",
+                "ImageRepositoryType": "ECR",
+                "ImageConfiguration": {
+                  "Port": "3000"
+                }
+              },
+              "AutoDeploymentsEnabled": false,
+              "AuthenticationConfiguration": {
+                "AccessRoleArn": "${{ secrets.APPRUNNER_ECR_ROLE_ARN }}"
+              }
+            }'
+
+      - name: Wait for Staging Deployment
+        run: |
+          echo "Waiting for staging service to become stable..."
+          for i in $(seq 1 30); do
+            STATUS=$(aws apprunner describe-service \
+              --service-arn ${{ secrets.STAGING_SERVICE_ARN }} \
+              --query 'Service.Status' --output text)
+            if [ "$STATUS" = "RUNNING" ]; then
+              echo "Staging deployment successful"
+              break
+            elif [ "$STATUS" = "OPERATION_FAILED" ]; then
+              echo "Staging deployment failed"
+              exit 1
+            fi
+            echo "Status: $STATUS - waiting... ($i/30)"
+            sleep 20
+          done
+
+      - name: Health Check (Staging)
+        run: |
+          STAGING_URL=$(aws apprunner describe-service \
+            --service-arn ${{ secrets.STAGING_SERVICE_ARN }} \
+            --query 'Service.ServiceUrl' --output text)
+          
+          echo "Running health check against https://$STAGING_URL/health"
+          for i in $(seq 1 5); do
+            HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "https://$STAGING_URL/health" || true)
+            if [ "$HTTP_CODE" = "200" ]; then
+              echo "Health check passed"
+              exit 0
+            fi
+            echo "Attempt $i: HTTP $HTTP_CODE - retrying in 10s..."
+            sleep 10
+          done
+          echo "Health check failed after 5 attempts"
+          exit 1
+
+      - name: Notify Staging Success
+        if: success()
+        uses: slackapi/slack-github-action@v1.26.0
+        with:
+          payload: |
+            {
+              "text": "✅ *Staging Deployment Successful*\n*Commit:* `${{ github.sha }}`\n*Author:* ${{ github.actor }}\n*Message:* ${{ github.event.head_commit.message }}"
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+      - name: Notify Staging Failure
+        if: failure()
+        uses: slackapi/slack-github-action@v1.26.0
+        with:
+          payload: |
+            {
+              "text": "❌ *Staging Deployment Failed*\n*Commit:* `${{ github.sha }}`\n*Author:* ${{ github.actor }}\n*Message:* ${{ github.event.head_commit.message }}"
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+  deploy-production:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    needs: [deploy-staging]
+    environment:
+      name: production
+      url: https://api.thoughtflow.app
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_CICD_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Record Previous Image (for rollback)
+        id: previous
+        run: |
+          PREV_IMAGE=$(aws apprunner describe-service \
+            --service-arn ${{ secrets.PRODUCTION_SERVICE_ARN }} \
+            --query 'Service.SourceConfiguration.ImageRepository.ImageIdentifier' \
+            --output text 2>/dev/null || echo "none")
+          echo "image=$PREV_IMAGE" >> $GITHUB_OUTPUT
+          echo "Previous image: $PREV_IMAGE"
+
+      - name: Deploy to App Runner (Production)
+        run: |
+          aws apprunner update-service \
+            --service-arn ${{ secrets.PRODUCTION_SERVICE_ARN }} \
+            --source-configuration '{
+              "ImageRepository": {
+                "ImageIdentifier": "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}",
+                "ImageRepositoryType": "ECR",
+                "ImageConfiguration": {
+                  "Port": "3000"
+                }
+              },
+              "AutoDeploymentsEnabled": false,
+              "AuthenticationConfiguration": {
+                "AccessRoleArn": "${{ secrets.APPRUNNER_ECR_ROLE_ARN }}"
+              }
+            }'
+
+      - name: Wait for Production Deployment
+        id: wait-deploy
+        run: |
+          echo "Waiting for production service to become stable..."
+          for i in $(seq 1 30); do
+            STATUS=$(aws apprunner describe-service \
+              --service-arn ${{ secrets.PRODUCTION_SERVICE_ARN }} \
+              --query 'Service.Status' --output text)
+            if [ "$STATUS" = "RUNNING" ]; then
+              echo "Production deployment successful"
+              echo "status=success" >> $GITHUB_OUTPUT
+              exit 0
+            elif [ "$STATUS" = "OPERATION_FAILED" ]; then
+              echo "Production deployment failed"
+              echo "status=failed" >> $GITHUB_OUTPUT
+              exit 1
+            fi
+            echo "Status: $STATUS - waiting... ($i/30)"
+            sleep 20
+          done
+          echo "Deployment timed out"
+          echo "status=timeout" >> $GITHUB_OUTPUT
+          exit 1
+
+      - name: Health Check (Production)
+        id: health-check
+        run: |
+          PROD_URL=$(aws apprunner describe-service \
+            --service-arn ${{ secrets.PRODUCTION_SERVICE_ARN }} \
+            --query 'Service.ServiceUrl' --output text)
+          
+          echo "Running health check against https://$PROD_URL/health"
+          for i in $(seq 1 10); do
+            HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "https://$PROD_URL/health" || true)
+            if [ "$HTTP_CODE" = "200" ]; then
+              echo "Health check passed"
+              echo "status=healthy" >> $GITHUB_OUTPUT
+              exit 0
+            fi
+            echo "Attempt $i: HTTP $HTTP_CODE - retrying in 30s..."
+            sleep 30
+          done
+          echo "Health check failed - triggering rollback"
+          echo "status=unhealthy" >> $GITHUB_OUTPUT
+          exit 1
+
+      - name: Rollback on Failure
+        if: failure() && steps.previous.outputs.image != 'none'
+        run: |
+          echo "Rolling back to previous image: ${{ steps.previous.outputs.image }}"
+          aws apprunner update-service \
+            --service-arn ${{ secrets.PRODUCTION_SERVICE_ARN }} \
+            --source-configuration "{
+              \"ImageRepository\": {
+                \"ImageIdentifier\": \"${{ steps.previous.outputs.image }}\",
+                \"ImageRepositoryType\": \"ECR\",
+                \"ImageConfiguration\": {
+                  \"Port\": \"3000\"
+                }
+              },
+              \"AutoDeploymentsEnabled\": false,
+              \"AuthenticationConfiguration\": {
+                \"AccessRoleArn\": \"${{ secrets.APPRUNNER_ECR_ROLE_ARN }}\"
+              }
+            }"
+          
+          echo "Waiting for rollback to complete..."
+          for i in $(seq 1 30); do
+            STATUS=$(aws apprunner describe-service \
+              --service-arn ${{ secrets.PRODUCTION_SERVICE_ARN }} \
+              --query 'Service.Status' --output text)
+            if [ "$STATUS" = "RUNNING" ]; then
+              echo "Rollback successful"
+              break
+            fi
+            sleep 20
+          done
+
+      - name: Notify Production Success
+        if: success()
+        uses: slackapi/slack-github-action@v1.26.0
+        with:
+          payload: |
+            {
+              "text": "🚀 *Production Deployment Successful*\n*Commit:* `${{ github.sha }}`\n*Author:* ${{ github.actor }}\n*Message:* ${{ github.event.head_commit.message }}\n*URL:* https://api.thoughtflow.app"
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+      - name: Notify Production Failure / Rollback
+        if: failure()
+        uses: slackapi/slack-github-action@v1.26.0
+        with:
+          payload: |
+            {
+              "text": "🔴 *Production Deployment Failed - Rollback Initiated*\n*Commit:* `${{ github.sha }}`\n*Author:* ${{ github.actor }}\n*Previous Image:* ${{ steps.previous.outputs.image }}"
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
