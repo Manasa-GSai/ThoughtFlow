@@ -4,6 +4,17 @@
 .cursor/hooks/
 .cursor/rules/forge-workflow.mdc
 
+# Node.js
+node_modules/
+dist/
+coverage/
+.nyc_output/
+
+# Environment
+.env
+.env.*
+!.env.example
+
 # Terraform
 infrastructure/.terraform/
 infrastructure/.terraform.lock.hcl
