@@ -1,4 +1,5 @@
 import request, { Response } from 'supertest';
+import express from 'express';
 import { createApp, AppContext } from '../app';
 import { Logger } from '../logger';
 import { createMetrics } from '../metrics';
@@ -59,22 +60,26 @@ describe('Auth integration — full register → login → authed → refresh �
     expect(login.status).toBe(200);
     expect(login.body.access_token).toBeTruthy();
 
-    // 3. Use access token against a protected route (we exercise requireAuth
-    //    via an ad-hoc handler since no domain routes exist yet — proves the
-    //    middleware works end-to-end).
-    app.get('/test/protected', ctx.requireAuth, (req, res) => {
+    // 3. Use access token against a minimal protected app — exercises
+    //    requireAuth end-to-end. We construct a separate Express app rather
+    //    than mounting on the main one because WO-008 added a catch-all 404
+    //    handler at the end of the main app's middleware stack, so any
+    //    runtime-added route would be unreachable.
+    const accessToken = login.body.access_token;
+    const probeApp = express();
+    probeApp.use(express.json());
+    probeApp.get('/test/protected', ctx.requireAuth, (req, res) => {
       res.json({ user: req.user });
     });
 
-    const accessToken = login.body.access_token;
-    const protectedRes = await request(app)
+    const protectedRes = await request(probeApp)
       .get('/test/protected')
       .set('Authorization', `Bearer ${accessToken}`);
     expect(protectedRes.status).toBe(200);
     expect(protectedRes.body.user.email).toBe('flow@test.com');
 
     // 4. Without auth, the same route is rejected
-    const unauthd = await request(app).get('/test/protected');
+    const unauthd = await request(probeApp).get('/test/protected');
     expect(unauthd.status).toBe(401);
 
     // 5. Refresh — agent carries the cookie automatically
@@ -199,11 +204,14 @@ describe('createTestUser fixture (AC #11)', () => {
     const user = await createTestUser(ctx);
     expect(user.authorization_header).toMatch(/^Bearer /);
 
-    ctx.app.get('/test/me', ctx.requireAuth, (req, res) => {
+    // Probe app exercises requireAuth on a route that doesn't need to live on
+    // the full app (which now has a catch-all 404 after foundation routes).
+    const probeApp = express();
+    probeApp.get('/test/me', ctx.requireAuth, (req, res) => {
       res.json({ id: req.user!.id });
     });
 
-    const res = await request(ctx.app)
+    const res = await request(probeApp)
       .get('/test/me')
       .set('Authorization', user.authorization_header);
     expect(res.status).toBe(200);

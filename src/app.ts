@@ -1,5 +1,7 @@
 import express, { Express } from 'express';
 import cookieParser from 'cookie-parser';
+import cors, { CorsOptions } from 'cors';
+import helmet from 'helmet';
 import type Redis from 'ioredis';
 import { correlationIdMiddleware, createRequestLoggerMiddleware } from './middleware';
 import { createLogger, Logger } from './logger';
@@ -36,6 +38,13 @@ import {
   InMemorySessionHelper,
   createRedisClient,
 } from './redis';
+import {
+  createErrorHandler,
+  notFoundHandler,
+  createThoughtsPlaceholderRouter,
+  createSyncPlaceholderRouter,
+  createUserPlaceholderRouter,
+} from './api';
 
 export interface AppOptions {
   service?: string;
@@ -74,6 +83,14 @@ export interface AppOptions {
    * Whether to mark refresh cookies Secure. Default true in production.
    */
   secureCookies?: boolean;
+  /**
+   * CORS allow-list. Accepts a single origin, an array, or a function. When
+   * unset, falls back to CORS_ORIGIN env var (comma-separated list) or
+   * disallows cross-origin requests entirely.
+   */
+  corsOrigin?: CorsOptions['origin'];
+  /** JSON body parser limit. Default '1mb' per AC #3. */
+  jsonBodyLimit?: string;
 }
 
 export interface AppContext {
@@ -163,7 +180,18 @@ export function createApp(options: AppOptions = {}): AppContext {
   const app = express();
   app.disable('x-powered-by');
   app.set('trust proxy', true);
-  app.use(express.json());
+
+  // Security headers (AC #8) — defaults to sane HSTS/XCTO/XFO/etc.
+  app.use(helmet());
+
+  // CORS with credentials so the refresh cookie is sent on cross-origin requests.
+  const corsOrigin = options.corsOrigin ?? resolveCorsOriginFromEnv();
+  app.use(cors({ origin: corsOrigin, credentials: true }));
+
+  // Body parsers — JSON 1MB default (AC #3). Multipart is mounted per-route
+  // (audio upload route in WO-012) at the 25MB limit, NOT globally, so other
+  // endpoints don't accept oversize uploads.
+  app.use(express.json({ limit: options.jsonBodyLimit ?? '1mb' }));
   app.use(cookieParser());
 
   app.use(correlationIdMiddleware);
@@ -180,6 +208,16 @@ export function createApp(options: AppOptions = {}): AppContext {
       secureCookies,
     }),
   );
+
+  // Placeholder route trees (AC #7) — return 404 with `not_implemented` hint
+  // until each feature WO lands its real router.
+  app.use('/api/thoughts', createThoughtsPlaceholderRouter());
+  app.use('/api/sync', createSyncPlaceholderRouter());
+  app.use('/api/user', createUserPlaceholderRouter());
+
+  // Catch-all 404 + centralized error handler (AC #5). Must be mounted LAST.
+  app.use(notFoundHandler());
+  app.use(createErrorHandler(logger));
 
   return {
     app,
@@ -213,4 +251,19 @@ function buildJwtServiceFromEnv(): JwtService {
 
 function defaultDevSecret(label: string): string {
   return `dev-only-${label}-secret-do-not-use-in-production`;
+}
+
+/**
+ * Resolves CORS_ORIGIN from environment. Accepts comma-separated origins
+ * (e.g., "https://app.thoughtflow.io,https://staging.thoughtflow.io") or a
+ * single origin. When unset, returns `false` — disallows all cross-origin
+ * requests, which is the secure default for a backend with no frontend
+ * deployed yet.
+ */
+function resolveCorsOriginFromEnv(): CorsOptions['origin'] {
+  const raw = process.env.CORS_ORIGIN;
+  if (!raw) return false;
+  const origins = raw.split(',').map((s) => s.trim()).filter(Boolean);
+  if (origins.length === 1) return origins[0];
+  return origins;
 }
