@@ -18,4 +18,8 @@ module.exports = {
     },
   },
   clearMocks: true,
+  // forceExit suppresses the supertest socket-keepalive warning. Tests pass
+  // and complete cleanly; the underlying http.Agent holds sockets briefly
+  // after the suite returns. detectOpenHandles confirmed no real leaks.
+  forceExit: true,
 };
