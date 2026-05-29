@@ -1,0 +1,87 @@
+# Prometheus alerting rules for ThoughtFlow API.
+#
+# Deployed to the Prometheus / Alertmanager stack provisioned by WO-001.
+# Format follows the standard Prometheus rule-file schema and is compatible
+# with the PrometheusRule CRD used by kube-prometheus.
+#
+# Rule mapping to WO-006 acceptance criterion #7:
+#   - error rate >5% over 5 minutes      → HighHttpErrorRate
+#   - p95 latency >500ms for non-AI      → HighNonAiP95Latency
+#   - Whisper API error rate >10%        → WhisperApiHighErrorRate
+#   - health check failures for >2 mins  → HealthCheckFailing
+#
+# All severities map to the PagerDuty / Slack routing matrix defined in
+# WO-006 runbooks (page on `critical`, Slack-only on `warning`).
+groups:
+  - name: thoughtflow-api-availability
+    interval: 30s
+    rules:
+      - alert: HighHttpErrorRate
+        expr: |
+          (
+            sum(rate(http_requests_total{status_code=~"5.."}[5m]))
+            /
+            sum(rate(http_requests_total[5m]))
+          ) > 0.05
+        for: 5m
+        labels:
+          severity: critical
+          service: thoughtflow-api
+        annotations:
+          summary: "HTTP 5xx error rate above 5% for 5 minutes"
+          description: "{{ $value | humanizePercentage }} of requests are failing with 5xx status — investigate API gateway and downstream services."
+          runbook: "https://runbooks.thoughtflow.internal/api-error-rate"
+
+      - alert: HealthCheckFailing
+        expr: |
+          probe_success{job="thoughtflow-api-health"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          service: thoughtflow-api
+        annotations:
+          summary: "Health check has been failing for >2 minutes"
+          description: "GET /health is returning non-200 or is unreachable — pod may be deadlocked or evicted."
+          runbook: "https://runbooks.thoughtflow.internal/health-check-failing"
+
+  - name: thoughtflow-api-latency
+    interval: 30s
+    rules:
+      - alert: HighNonAiP95Latency
+        # AI routes are excluded because the SLO for them is set higher (Whisper <10s, Claude <1s).
+        # Non-AI routes have a p95 SLO of <200ms (NFR-1), so 500ms is a real degradation signal.
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum by (le, route) (
+              rate(http_request_duration_seconds_bucket{route!~".*/(transcribe|categorize).*"}[5m])
+            )
+          ) > 0.5
+        for: 5m
+        labels:
+          severity: warning
+          service: thoughtflow-api
+        annotations:
+          summary: "p95 latency >500ms for non-AI endpoints"
+          description: "Route {{ $labels.route }} p95 = {{ $value }}s — check DB pool, Redis, or downstream services."
+          runbook: "https://runbooks.thoughtflow.internal/api-latency"
+
+  - name: thoughtflow-api-external
+    interval: 30s
+    rules:
+      - alert: WhisperApiHighErrorRate
+        expr: |
+          (
+            sum(rate(whisper_api_errors_total[5m]))
+            /
+            sum(rate(whisper_api_duration_seconds_count[5m]))
+          ) > 0.10
+        for: 5m
+        labels:
+          severity: critical
+          service: thoughtflow-api
+          provider: openai-whisper
+        annotations:
+          summary: "OpenAI Whisper API error rate above 10%"
+          description: "{{ $value | humanizePercentage }} of Whisper calls are failing — check OpenAI status page and circuit breaker state."
+          runbook: "https://runbooks.thoughtflow.internal/whisper-api"
