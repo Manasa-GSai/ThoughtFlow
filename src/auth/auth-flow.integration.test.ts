@@ -178,12 +178,12 @@ describe('Auth integration — full register → login → authed → refresh �
     expect(lastStatus).toBe(429);
   });
 
-  it('register rate limit blocks the 4th attempt within a minute', async () => {
+  it('register rate limit blocks the 6th attempt within a minute (WO-010 spec: 5/min)', async () => {
     const { app } = buildApp();
     const ip = '8.8.8.8';
 
     let lastStatus = 0;
-    for (let i = 0; i < 4; i += 1) {
+    for (let i = 0; i < 6; i += 1) {
       const res = await request(app)
         .post('/api/auth/register')
         .set('X-Forwarded-For', ip)

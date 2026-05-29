@@ -37,7 +37,10 @@ export function createAuthRouter(options: AuthRouterOptions): Router {
   const registerLimiter = createRateLimitMiddleware({
     store: rateLimiterStore,
     scope: 'register',
-    max: 3,
+    // WO-010 AC #7 unifies unauthenticated auth-endpoint rate at 5/min per IP.
+    // Previously this was 3/min (more conservative for the account-creation
+    // side effect); aligned to 5 to match the documented spec.
+    max: 5,
     window_ms: 60_000,
   });
 

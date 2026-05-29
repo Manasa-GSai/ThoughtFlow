@@ -16,3 +16,5 @@ export {
   createSyncPlaceholderRouter,
   createUserPlaceholderRouter,
 } from './placeholders';
+export { createTierRateLimitMiddleware } from './tier-rate-limit';
+export type { TierRateLimitOptions } from './tier-rate-limit';
