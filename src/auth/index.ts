@@ -21,9 +21,33 @@ export type { RegisterInput, LoginInput } from './validators';
 export type {
   User,
   UserTier,
+  OAuthProvider,
   AuthenticatedUser,
   RefreshTokenRecord,
   AccessTokenClaims,
   RefreshTokenClaims,
   AuthSuccessResponse,
 } from './types';
+export {
+  OAuthService,
+  OAuthAccountConflictError,
+  GoogleProviderClient,
+  AppleProviderClient,
+  createOAuthRouter,
+  OAUTH_STATE_COOKIE,
+  decodeAndValidateIdToken,
+  InvalidIdTokenError,
+  OAuthConfigError,
+  OAuthExchangeError,
+} from './oauth';
+export type {
+  OAuthServiceDeps,
+  OAuthSignInResult,
+  OAuthProviderClient,
+  OAuthProfile,
+  GoogleProviderConfig,
+  AppleProviderConfig,
+  OAuthRouterOptions,
+  IdTokenClaims,
+  IdTokenValidationOptions,
+} from './oauth';

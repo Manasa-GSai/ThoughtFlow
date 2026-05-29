@@ -70,4 +70,76 @@ describe('InMemoryUserStore', () => {
     });
     expect(u.tier).toBe('pro');
   });
+
+  it('createOAuth produces a user with null password_hash + oauth fields populated', async () => {
+    const store = new InMemoryUserStore();
+    const u = await store.createOAuth({
+      email: 'gmail@example.com',
+      display_name: 'G',
+      provider: 'google',
+      oauth_id: 'g-sub-1',
+    });
+    expect(u.password_hash).toBeNull();
+    expect(u.oauth_provider).toBe('google');
+    expect(u.oauth_id).toBe('g-sub-1');
+    expect(u.tier).toBe('free');
+  });
+
+  it('findByOAuth returns the OAuth-only user', async () => {
+    const store = new InMemoryUserStore();
+    await store.createOAuth({
+      email: 'apple@example.com',
+      display_name: 'A',
+      provider: 'apple',
+      oauth_id: 'apple-sub-1',
+    });
+    const found = await store.findByOAuth('apple', 'apple-sub-1');
+    expect(found?.email).toBe('apple@example.com');
+  });
+
+  it('findByOAuth returns null when (provider, oauth_id) does not match', async () => {
+    const store = new InMemoryUserStore();
+    expect(await store.findByOAuth('google', 'unknown')).toBeNull();
+  });
+
+  it('linkOAuth attaches provider + oauth_id to an existing password user', async () => {
+    const store = new InMemoryUserStore();
+    const u = await store.create({
+      email: 'pw@example.com',
+      display_name: 'P',
+      password_hash: 'hash',
+    });
+    const linked = await store.linkOAuth(u.id, 'google', 'new-sub');
+    expect(linked.oauth_provider).toBe('google');
+    expect(linked.oauth_id).toBe('new-sub');
+    // Existing password is preserved
+    expect(linked.password_hash).toBe('hash');
+    // Now findByOAuth resolves the same user
+    expect((await store.findByOAuth('google', 'new-sub'))?.id).toBe(u.id);
+  });
+
+  it('linkOAuth throws when user_id is unknown', async () => {
+    const store = new InMemoryUserStore();
+    await expect(
+      store.linkOAuth('00000000-0000-4000-8000-000000000000', 'google', 'x'),
+    ).rejects.toThrow();
+  });
+
+  it('createOAuth rejects duplicate email', async () => {
+    const store = new InMemoryUserStore();
+    await store.createOAuth({
+      email: 'dup@example.com',
+      display_name: 'D',
+      provider: 'google',
+      oauth_id: 'g-1',
+    });
+    await expect(
+      store.createOAuth({
+        email: 'dup@example.com',
+        display_name: 'D2',
+        provider: 'apple',
+        oauth_id: 'a-1',
+      }),
+    ).rejects.toThrow();
+  });
 });

@@ -5,11 +5,28 @@
  */
 export type UserTier = 'free' | 'pro' | 'enterprise';
 
+/**
+ * OAuth provider identifiers. Apple and Google are the two we support
+ * directly per BR-4 / WO-009. Enterprise SSO (SAML/OIDC) is deferred to the
+ * Enterprise tier roadmap.
+ */
+export type OAuthProvider = 'google' | 'apple';
+
 export interface User {
   id: string;
   email: string;
   display_name: string;
-  password_hash: string;
+  /**
+   * Null when the user signed up via OAuth and never set a password. The
+   * AuthService.login() path must reject password attempts against such users
+   * (the dummy-hash compare in login() will return false because there's
+   * nothing to compare).
+   */
+  password_hash: string | null;
+  /** Set when the user signed in via OAuth at least once. */
+  oauth_provider?: OAuthProvider;
+  /** Provider's unique subject identifier (sub claim of the ID token). */
+  oauth_id?: string;
   tier: UserTier;
   created_at: Date;
 }

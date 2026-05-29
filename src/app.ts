@@ -25,6 +25,11 @@ import {
   PasswordHasher,
   createAuthRouter,
   createRequireAuthMiddleware,
+  OAuthService,
+  GoogleProviderClient,
+  AppleProviderClient,
+  OAuthProviderClient,
+  createOAuthRouter,
 } from './auth';
 import {
   RateLimitHelper,
@@ -91,6 +96,16 @@ export interface AppOptions {
   corsOrigin?: CorsOptions['origin'];
   /** JSON body parser limit. Default '1mb' per AC #3. */
   jsonBodyLimit?: string;
+  /**
+   * Pre-built OAuth providers (Google + Apple). When unset, providers are
+   * constructed from environment if GOOGLE_OAUTH_CLIENT_ID / APPLE_OAUTH_CLIENT_ID
+   * are present. Unconfigured providers result in their endpoints not being
+   * mounted at all (the router conditionally mounts).
+   */
+  googleOAuth?: OAuthProviderClient | null;
+  appleOAuth?: OAuthProviderClient | null;
+  /** Override for the OAuth redirect base URL (e.g., 'https://api.thoughtflow.io'). */
+  oauthRedirectBase?: string;
 }
 
 export interface AppContext {
@@ -108,6 +123,9 @@ export interface AppContext {
   sessionHelper: SessionHelper;
   rateLimitHelper: RateLimitHelper;
   requireAuth: ReturnType<typeof createRequireAuthMiddleware>;
+  oauthService: OAuthService;
+  googleOAuth: OAuthProviderClient | null;
+  appleOAuth: OAuthProviderClient | null;
 }
 
 /**
@@ -177,6 +195,13 @@ export function createApp(options: AppOptions = {}): AppContext {
   const authService = new AuthService({ userStore, tokenStore, passwordHasher, jwtService });
   const requireAuth = createRequireAuthMiddleware(jwtService);
 
+  // OAuth — providers are optional (only mount what's configured)
+  const googleOAuth =
+    options.googleOAuth !== undefined ? options.googleOAuth : buildGoogleOAuthFromEnv();
+  const appleOAuth =
+    options.appleOAuth !== undefined ? options.appleOAuth : buildAppleOAuthFromEnv();
+  const oauthService = new OAuthService({ userStore, tokenStore, jwtService });
+
   const app = express();
   app.disable('x-powered-by');
   app.set('trust proxy', true);
@@ -192,6 +217,10 @@ export function createApp(options: AppOptions = {}): AppContext {
   // (audio upload route in WO-012) at the 25MB limit, NOT globally, so other
   // endpoints don't accept oversize uploads.
   app.use(express.json({ limit: options.jsonBodyLimit ?? '1mb' }));
+  // Apple's OAuth callback uses application/x-www-form-urlencoded with
+  // response_mode=form_post. Mount the urlencoded parser globally so that
+  // and any future form-posting endpoints work.
+  app.use(express.urlencoded({ extended: true, limit: options.jsonBodyLimit ?? '1mb' }));
   app.use(cookieParser());
 
   app.use(correlationIdMiddleware);
@@ -205,6 +234,15 @@ export function createApp(options: AppOptions = {}): AppContext {
       authService,
       jwtService,
       rateLimiterStore,
+      secureCookies,
+    }),
+  );
+  app.use(
+    createOAuthRouter({
+      oauthService,
+      google: googleOAuth ?? undefined,
+      apple: appleOAuth ?? undefined,
+      redirectBase: options.oauthRedirectBase ?? process.env.OAUTH_REDIRECT_BASE,
       secureCookies,
     }),
   );
@@ -233,7 +271,24 @@ export function createApp(options: AppOptions = {}): AppContext {
     sessionHelper,
     rateLimitHelper,
     requireAuth,
+    oauthService,
+    googleOAuth,
+    appleOAuth,
   };
+}
+
+function buildGoogleOAuthFromEnv(): OAuthProviderClient | null {
+  const client_id = process.env.GOOGLE_OAUTH_CLIENT_ID;
+  const client_secret = process.env.GOOGLE_OAUTH_CLIENT_SECRET;
+  if (!client_id || !client_secret) return null;
+  return new GoogleProviderClient({ client_id, client_secret });
+}
+
+function buildAppleOAuthFromEnv(): OAuthProviderClient | null {
+  const client_id = process.env.APPLE_OAUTH_CLIENT_ID;
+  const client_secret = process.env.APPLE_OAUTH_CLIENT_SECRET;
+  if (!client_id || !client_secret) return null;
+  return new AppleProviderClient({ client_id, client_secret });
 }
 
 function buildJwtServiceFromEnv(): JwtService {
