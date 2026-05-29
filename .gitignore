@@ -1,0 +1,13 @@
+# Forge-managed local artifacts
+.forge-commit-ready
+.forge/project-id
+.claude/hooks/
+
+# Node
+node_modules/
+dist/
+coverage/
+*.log
+.DS_Store
+.env
+.env.local
