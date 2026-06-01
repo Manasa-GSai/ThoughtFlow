@@ -139,6 +139,7 @@ describe("DELETE /api/thoughts/:id", () => {
 
     expect(mockQuery.mock.calls[0][0]).toContain("deleted_at = NOW()");
     expect(mockQuery.mock.calls[1][0]).toContain("action_items");
+    expect(mockQuery.mock.calls[1][0]).toContain("deleted_at = NOW()");
   });
 
   it("returns 404 for non-existent thought", async () => {

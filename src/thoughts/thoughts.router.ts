@@ -80,7 +80,7 @@ export const createThoughtsRouter = (db: Pool): Router => {
 
       const actionItems = await db.query(
         `SELECT id, task, priority, due_date, completed, completed_at, created_at
-         FROM action_items WHERE thought_id = $1 AND user_id = $2
+         FROM action_items WHERE thought_id = $1 AND user_id = $2 AND deleted_at IS NULL
          ORDER BY created_at ASC`,
         [req.params.id, userId]
       );
@@ -165,8 +165,8 @@ export const createThoughtsRouter = (db: Pool): Router => {
 
       // Cascade soft delete to action items
       await db.query(
-        `UPDATE action_items SET updated_at = NOW()
-         WHERE thought_id = $1 AND user_id = $2`,
+        `UPDATE action_items SET deleted_at = NOW(), updated_at = NOW()
+         WHERE thought_id = $1 AND user_id = $2 AND deleted_at IS NULL`,
         [req.params.id, userId]
       );
 

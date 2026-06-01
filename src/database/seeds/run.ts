@@ -63,11 +63,13 @@ const seedData = async (): Promise<void> => {
     `, [proUserId]);
 
     await client.query(`
-      INSERT INTO action_items (id, thought_id, user_id, task, priority, due_date, completed)
+      INSERT INTO action_items (id, thought_id, user_id, task, priority, due_date, completed, completed_at)
       VALUES
-        ('c0000000-0000-0000-0000-000000000001', 'b0000000-0000-0000-0000-000000000001', $1, 'Review Q3 budget proposal', 'high', CURRENT_DATE + INTERVAL '2 days', false),
-        ('c0000000-0000-0000-0000-000000000002', 'b0000000-0000-0000-0000-000000000002', $1, 'Buy milk, eggs, and bread', 'medium', CURRENT_DATE, false),
-        ('c0000000-0000-0000-0000-000000000003', 'b0000000-0000-0000-0000-000000000004', $1, 'Schedule parent-teacher conference', 'high', CURRENT_DATE + INTERVAL '5 days', false)
+        ('c0000000-0000-0000-0000-000000000001', 'b0000000-0000-0000-0000-000000000001', $1, 'Review Q3 budget proposal', 'high', CURRENT_DATE + INTERVAL '2 days', false, NULL),
+        ('c0000000-0000-0000-0000-000000000002', 'b0000000-0000-0000-0000-000000000002', $1, 'Buy milk, eggs, and bread', 'medium', CURRENT_DATE, false, NULL),
+        ('c0000000-0000-0000-0000-000000000003', 'b0000000-0000-0000-0000-000000000004', $1, 'Schedule parent-teacher conference', 'high', CURRENT_DATE + INTERVAL '5 days', false, NULL),
+        ('c0000000-0000-0000-0000-000000000004', 'b0000000-0000-0000-0000-000000000001', $1, 'Overdue follow-up email', 'high', CURRENT_DATE - INTERVAL '1 day', false, NULL),
+        ('c0000000-0000-0000-0000-000000000005', 'b0000000-0000-0000-0000-000000000003', $1, 'Sketch garden layout', 'low', CURRENT_DATE + INTERVAL '14 days', true, NOW())
       ON CONFLICT DO NOTHING
     `, [proUserId]);
 
@@ -91,7 +93,7 @@ const seedData = async (): Promise<void> => {
     console.log("✅ Seed data inserted successfully");
     console.log("   - 3 users (free, pro, enterprise)");
     console.log("   - 5 thoughts for pro user");
-    console.log("   - 3 action items");
+    console.log("   - 5 action items (overdue, due today, upcoming, completed)");
     console.log("   - 3 sample custom categories (Side Project, Fitness, Reading List)");
     console.log("   - 2 audit log entries");
   } catch (error) {
