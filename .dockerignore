@@ -1,0 +1,17 @@
+node_modules
+npm-debug.log
+.git
+.gitignore
+.env*
+*.md
+.cursor
+.forge-commit-ready
+.forge
+infrastructure
+.github
+.terraform
+*.tfstate*
+*.tfplan
+dist
+coverage
+.nyc_output
