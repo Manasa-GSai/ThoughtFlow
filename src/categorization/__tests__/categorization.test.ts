@@ -60,6 +60,7 @@ describe("CategorizationService", () => {
       "Reading about clean architecture",
       ["reading", "side-project"]
     );
+    expect(mockQuery.mock.calls[1][0]).toContain("deleted_at IS NULL");
   });
 
   it("returns queued when circuit breaker is open", async () => {

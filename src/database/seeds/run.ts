@@ -74,10 +74,9 @@ const seedData = async (): Promise<void> => {
     await client.query(`
       INSERT INTO custom_categories (id, user_id, name, color, sort_order)
       VALUES
-        ('d0000000-0000-0000-0000-000000000001', $1, 'work', '#3b82f6', 1),
-        ('d0000000-0000-0000-0000-000000000002', $1, 'family', '#10b981', 2),
-        ('d0000000-0000-0000-0000-000000000003', $1, 'errands', '#f59e0b', 3),
-        ('d0000000-0000-0000-0000-000000000004', $1, 'ideas', '#8b5cf6', 4)
+        ('d0000000-0000-0000-0000-000000000001', $1, 'Side Project', '#ec4899', 10),
+        ('d0000000-0000-0000-0000-000000000002', $1, 'Fitness', '#14b8a6', 11),
+        ('d0000000-0000-0000-0000-000000000003', $1, 'Reading List', '#a855f7', 12)
       ON CONFLICT DO NOTHING
     `, [proUserId]);
 
@@ -93,7 +92,7 @@ const seedData = async (): Promise<void> => {
     console.log("   - 3 users (free, pro, enterprise)");
     console.log("   - 5 thoughts for pro user");
     console.log("   - 3 action items");
-    console.log("   - 4 custom categories");
+    console.log("   - 3 sample custom categories (Side Project, Fitness, Reading List)");
     console.log("   - 2 audit log entries");
   } catch (error) {
     await client.query("ROLLBACK");

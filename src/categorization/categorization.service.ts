@@ -41,7 +41,9 @@ export const createCategorizationService = (
 
       // Fetch user's custom categories
       const customCats = await db.query(
-        `SELECT name FROM custom_categories WHERE user_id = $1 ORDER BY sort_order`,
+        `SELECT name FROM custom_categories
+         WHERE user_id = $1 AND deleted_at IS NULL
+         ORDER BY sort_order`,
         [userId]
       );
       const customCategories = customCats.rows.map((r: any) => r.name);

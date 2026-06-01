@@ -48,7 +48,9 @@ Return ONLY the JSON. No explanation.`;
         throw new Error(`Claude API error ${response.status}: ${errorBody}`);
       }
 
-      const data = await response.json();
+      const data = (await response.json()) as {
+        content?: Array<{ text?: string }>;
+      };
       const content = data.content?.[0]?.text;
 
       if (!content) {
