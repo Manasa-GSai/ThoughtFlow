@@ -2,12 +2,26 @@
 .forge-commit-ready
 .forge/project-id
 .claude/hooks/
+.cursor/hooks.json
+.cursor/hooks/
+.cursor/rules/forge-workflow.mdc
 
 # Node
 node_modules/
 dist/
 coverage/
+.nyc_output/
 *.log
 .DS_Store
+
+# Environment
 .env
-.env.local
+.env.*
+!.env.example
+
+# Terraform
+infrastructure/.terraform/
+infrastructure/.terraform.lock.hcl
+*.tfstate
+*.tfstate.backup
+*.tfplan
