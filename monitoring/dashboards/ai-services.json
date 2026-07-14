@@ -1,0 +1,83 @@
+{
+  "uid": "thoughtflow-ai-services",
+  "title": "ThoughtFlow — AI Services (Whisper + Claude)",
+  "description": "AI SLI dashboard for WO-006: external AI provider latency and error rates. Tracks the Whisper <10s and Claude <1s latency budgets and the Whisper >10% error-rate alert threshold.",
+  "tags": ["thoughtflow", "sli", "ai", "wo-006"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "refresh": "30s",
+  "time": { "from": "now-6h", "to": "now" },
+  "templating": {
+    "list": [
+      {
+        "name": "datasource",
+        "type": "datasource",
+        "query": "prometheus",
+        "current": { "text": "Prometheus", "value": "prometheus" }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Whisper API p95 Duration (SLO <10s)",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "fieldConfig": { "defaults": { "unit": "s" } },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(whisper_api_duration_seconds_bucket[5m])))",
+          "legendFormat": "whisper p95"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Whisper API Error Rate (alert >10%)",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "fieldConfig": { "defaults": { "unit": "percentunit" } },
+      "thresholds": { "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 0.1 }] },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(whisper_api_errors_total[5m])) / sum(rate(whisper_api_duration_seconds_count[5m]))",
+          "legendFormat": "error rate"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Claude API p95 Duration (SLO <1s)",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "fieldConfig": { "defaults": { "unit": "s" } },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(claude_api_duration_seconds_bucket[5m])))",
+          "legendFormat": "claude p95"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Claude API Error Rate",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "fieldConfig": { "defaults": { "unit": "percentunit" } },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(claude_api_errors_total[5m])) / sum(rate(claude_api_duration_seconds_count[5m]))",
+          "legendFormat": "error rate"
+        }
+      ]
+    }
+  ]
+}

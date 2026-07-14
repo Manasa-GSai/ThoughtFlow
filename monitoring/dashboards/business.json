@@ -1,0 +1,82 @@
+{
+  "uid": "thoughtflow-business",
+  "title": "ThoughtFlow — Business Metrics",
+  "description": "Business SLI dashboard for WO-006: product analytics derived from the live request flow — thoughts captured (by source), transcriptions completed, and AI categorizations completed. Feeds the Success Metrics tracked in the PRD.",
+  "tags": ["thoughtflow", "sli", "business", "wo-006"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "refresh": "1m",
+  "time": { "from": "now-7d", "to": "now" },
+  "templating": {
+    "list": [
+      {
+        "name": "datasource",
+        "type": "datasource",
+        "query": "prometheus",
+        "current": { "text": "Prometheus", "value": "prometheus" }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Thoughts Captured / day (by source)",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "fieldConfig": { "defaults": { "unit": "short" } },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (source) (increase(thoughts_captured_total[1d]))",
+          "legendFormat": "{{source}}"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Total Thoughts Captured / day",
+      "type": "stat",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "fieldConfig": { "defaults": { "unit": "short" } },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(increase(thoughts_captured_total[1d]))",
+          "legendFormat": "captures/day"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Transcriptions Completed / day",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "fieldConfig": { "defaults": { "unit": "short" } },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "increase(transcriptions_completed_total[1d])",
+          "legendFormat": "transcriptions/day"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "AI Categorizations Completed / day",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "fieldConfig": { "defaults": { "unit": "short" } },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "increase(ai_categorizations_completed_total[1d])",
+          "legendFormat": "categorizations/day"
+        }
+      ]
+    }
+  ]
+}
